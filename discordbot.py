@@ -9,7 +9,7 @@ import re
 from copy import deepcopy
 import textwrap
 
-N_BOTS=2
+N_BOTS=8
 bot = [commands.Bot(command_prefix='!') for i in range(N_BOTS)]
 token = [os.environ['DISCORD_BOT_TOKEN_'+str(i)] for i in range(1,N_BOTS+1)]
 
