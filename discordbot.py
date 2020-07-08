@@ -10,7 +10,7 @@ from random import random
 from copy import deepcopy
 import textwrap
 
-N_BOTS=8
+N_BOTS=12
 bot = [commands.Bot(command_prefix='!') for i in range(N_BOTS)]
 token = [os.environ['DISCORD_BOT_TOKEN_'+str(i)] for i in range(1,N_BOTS+1)]
 
