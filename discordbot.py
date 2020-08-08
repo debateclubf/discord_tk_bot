@@ -129,11 +129,12 @@ class Cog(commands.Cog):
     }
 
   @staticmethod
-  async def send(sendable,content):
+  async def send(sendable,content,flg_del=True):
     if not(getattr(sendable,'send',False)): return
     msg=await sendable.send(content)
-    loop=asyncio.get_event_loop()
-    loop.create_task(msg.delete(delay=15*60))
+    if flg_del:
+      loop=asyncio.get_event_loop()
+      loop.create_task(msg.delete(delay=15*60))
     return msg
 
   async def call(self,guild_id,ch,src,flg_back=True):
@@ -303,7 +304,7 @@ class Cog(commands.Cog):
     :arrows_counterclockwise:：準備時間タイマーリセット
     :wave:：Botの退出
     '''))
-    msg=await Cog.send(ctx,content)
+    msg=await Cog.send(ctx,content,False)
     if ctx.guild.id in Cog.emoji_point_five :await msg.add_reaction(Cog.emoji_point_five[ctx.guild.id])
     for i in Cog.emoji_list_c:
       await msg.add_reaction(i)
@@ -328,7 +329,7 @@ class Cog(commands.Cog):
     #:loudspeaker:：準備室の呼び出し
     #:regional_indicator_a: :regional_indicator_n:：資料請求呼び出し
     #''')
-    msg=await Cog.send(ctx,content)
+    msg=await Cog.send(ctx,content,False)
     if ctx.guild.id in Cog.emoji_point_five :await msg.add_reaction(Cog.emoji_point_five[ctx.guild.id])
     for i in Cog.emoji_list_d:
       await msg.add_reaction(i)
