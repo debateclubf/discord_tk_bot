@@ -13,6 +13,7 @@ import textwrap
 N_BOTS=int(os.environ['N_BOTS'])
 bot = [commands.Bot(command_prefix='!') for i in range(N_BOTS)]
 token = [os.environ['DISCORD_BOT_TOKEN_'+str(i)] for i in range(1,N_BOTS+1)]
+loop=asyncio.get_event_loop()
 
 async def check_priv(ctx):
   return check_priv_user(ctx.author)
@@ -66,7 +67,7 @@ class Cog(commands.Cog):
   }
   emoji_list_c=['1️⃣','2️⃣','3️⃣','4️⃣','6️⃣',
     b'\xe2\x8f\xb8\xef\xb8\x8f'.decode(),
-    #'📢',
+    '📢',
     '✅',
     b'\xf0\x9f\x87\xa6'.decode(),
     b'\xf0\x9f\x87\xb3'.decode(),
@@ -75,10 +76,10 @@ class Cog(commands.Cog):
   ]
   emoji_list_d=['1️⃣','2️⃣','3️⃣','4️⃣','6️⃣',
     b'\xe2\x8f\xb8\xef\xb8\x8f'.decode(),
-    #'📢',
+    '📢',
     '✅',
-    #b'\xf0\x9f\x87\xa6'.decode(),
-    #b'\xf0\x9f\x87\xb3'.decode(),
+    b'\xf0\x9f\x87\xa6'.decode(),
+    b'\xf0\x9f\x87\xb3'.decode(),
     '👋'
   ]
   timer_def_c={'Aff':'8','Neg':'8'}
@@ -93,7 +94,6 @@ class Cog(commands.Cog):
     self.task_msg: Dict[int,asyncio.Task]={}
     self.future_msg: Dict[int,asyncio.Future]={}
     self.flg_call: Dict[int,bool]={}
-    self.loop: Dict[int,asyncio.BaseEventLoop]={}
     self.timer_def=deepcopy(Cog.timer_def_c)
     self.left_time: Dict[int,Dict[int,Dict[str,str]]]={}#g_id->[cat_id->[name->time]]
     self.timer_name: Dict[int,Dict[int,str]]={}#g_id->[cat_id->name(currently running)]
@@ -133,13 +133,10 @@ class Cog(commands.Cog):
     if not(getattr(sendable,'send',False)): return
     msg=await sendable.send(content)
     if flg_del:
-      loop=asyncio.get_event_loop()
       loop.create_task(msg.delete(delay=15*60))
     return msg
 
-  async def call(self,guild_id,ch,src,flg_back=True):
-    ch_before=None
-    if flg_back and guild_id in self.v_cl and self.v_cl[guild_id]!=None: ch_before=self.v_cl[guild_id].channel
+  async def move_ch(self,guild_id,ch):
     if guild_id in self.fut_connect and not(self.fut_connect[guild_id].done()): await self.fut_connect[guild_id]
     if not(guild_id in self.v_cl) or self.v_cl[guild_id]==None or not(self.v_cl[guild_id].is_connected()):
       for v_cl in self.bot.voice_clients:
@@ -147,27 +144,33 @@ class Cog(commands.Cog):
           self.v_cl[guild_id]=v_cl
           break
     if not(guild_id in self.v_cl) or self.v_cl[guild_id]==None or not(self.v_cl[guild_id].is_connected()):
-      self.fut_connect[guild_id]=asyncio.get_event_loop().create_future()
+      self.fut_connect[guild_id]=loop.create_future()
       self.v_cl[guild_id]=await ch.connect()
       if guild_id in self.fut_connect and self.fut_connect[guild_id]: self.fut_connect[guild_id].set_result(True)
     else:
       if self.v_cl[guild_id].is_playing(): self.v_cl[guild_id].stop()
-      await self.v_cl[guild_id].move_to(ch)
-    if not(guild_id in self.loop) or not(self.loop[guild_id]) or self.loop[guild_id].is_closed():
-      self.loop[guild_id]=asyncio.get_event_loop()
-    future=self.loop[guild_id].create_future()
-    self.v_cl[guild_id].play(discord.FFmpegPCMAudio(src),after=lambda err:future.set_result(0))
+      if self.v_cl[guild_id].channel!=ch:
+        self.fut_connect[guild_id]=loop.create_future()
+        #print('call: move from '+self.v_cl[guild_id].channel.name+' to '+ch.name)
+        await self.v_cl[guild_id].disconnect()
+        self.v_cl[guild_id]=await ch.connect()
+        if guild_id in self.fut_connect and self.fut_connect[guild_id]: self.fut_connect[guild_id].set_result(True)
+
+  async def call(self,guild_id,ch,src):
+    await self.move_ch(guild_id,ch)
+    future=loop.create_future()
+    self.v_cl[guild_id].play(discord.FFmpegPCMAudio(src),after=lambda err:loop.call_soon_threadsafe(future.set_result,0))
+    #print('call: connecting to '+self.v_cl[guild_id].channel.name)
     await future
-    if flg_back and ch_before!=None:
-      await self.v_cl[guild_id].move_to(ch_before)
 
   async def se(self,guild_id,vc_list,src):
     ch_before=None
     if guild_id in self.v_cl and self.v_cl[guild_id]!=None: ch_before=self.v_cl[guild_id].channel
     for ch in vc_list:
-      await self.call(guild_id,ch,src,flg_back=False)
+      #print('se: '+ch.name)
+      await self.call(guild_id,ch,src)
     if ch_before!=None:
-      await self.v_cl[guild_id].move_to(ch_before)
+      await self.move_ch(guild_id,ch_before)
 
   def sel_bot(self,guild_id,cat_id,flg_connect=False):
     if not(guild_id in Cog.cat2bot):
@@ -411,7 +414,7 @@ class Cog(commands.Cog):
     if not(vc_list): return
     for ch in cat.voice_channels:
       if arg in ch.name:
-        await self.call(guild.id,ch,"audio/evi.wav")
+        await self.se(guild.id,filter(lambda ch: arg in ch.name,cat.voice_channels),"audio/evi.wav")
 
   @commands.command()
   @commands.check(check_priv)
@@ -421,9 +424,7 @@ class Cog(commands.Cog):
   async def s_in(self,guild,ch,author):
     if not(self.sel_bot(guild.id,ch.category_id)): return
     if guild.id in self.future and self.future[guild.id]:
-      if not(guild.id in self.loop) or not(self.loop[guild.id]) or self.loop[guild.id].is_closed():
-        self.loop[guild.id]=asyncio.get_event_loop()
-      dt=datetime.timedelta(seconds=self.task[guild.id].when()-self.loop[guild.id].time())
+      dt=datetime.timedelta(seconds=self.task[guild.id].when()-loop.time())
       name=''
       if ch.category_id in self.timer_name.get(guild.id,{}):
         name=self.timer_name[guild.id][ch.category_id]
@@ -465,23 +466,10 @@ class Cog(commands.Cog):
     if not(guild_id in self.task and self.task[guild_id]):
       await Cog.send(ch,"Timer is not running.")
       return
-    if not(guild_id in self.loop) or not(self.loop[guild_id]) or self.loop[guild_id].is_closed():
-      self.loop[guild_id]=asyncio.get_event_loop()
-    #if not(guild_id in self.future_msg and self.future_msg[guild_id]):
-    #    self.future_msg[guild_id]=self.loop[guild_id].create_future()
-    #if not(guild_id in self.task_msg and self.task_msg[guild_id]):
-    #    self.task_msg[guild_id]=self.loop[guild_id].call_later(10,self.future_msg[guild_id].set_result,True)
-    #result=await self.future_msg[guild_id]
-    #if not(result): return
-    #if guild_id in self.future_msg and self.future_msg[guild_id]:
-    dt=datetime.timedelta(seconds=self.task[guild_id].when()-self.loop[guild_id].time())
-    #if dt.seconds>10:
-    #  self.future_msg[guild_id]=self.loop[guild_id].create_future()
-    #  self.task_msg[guild_id]=self.loop[guild_id].call_later(10,self.future_msg[guild_id].set_result,True)
+    dt=datetime.timedelta(seconds=self.task[guild_id].when()-loop.time())
     name=''
     if ch.category_id in self.timer_name.get(guild_id,{}): name=f'\n__**{self.timer_name[guild_id][ch.category_id]}**__ : '
     await Cog.send(ch,f"Timer Running: {name}{(dt.seconds+1)//60} min {(dt.seconds+1)%60:02} sec left.")
-    #if dt.seconds>10: asyncio.create_task(self.time_msg(guild_id,ch))
 
   async def t_in(self,guild,ch,author,arg_t,arg_b='No',flg_loudspeaker=False):
     if not(self.sel_bot(guild.id,ch.category_id,True)): return
@@ -514,29 +502,12 @@ class Cog(commands.Cog):
     flg_vc=not((not voice_state) or (not voice_state.channel))
     if not flg_vc:
       await Cog.send(ch,"You have to join a voice channel first.")
-    else:
-      if guild.id in self.fut_connect and not(self.fut_connect[guild.id].done()): await self.fut_connect[guild.id]
-      if not(guild.id in self.v_cl) or self.v_cl[guild.id]==None or not(self.v_cl[guild.id].is_connected()):
-        for v_cl in self.bot.voice_clients:
-          if v_cl.guild.id==guild.id and v_cl.is_connected():
-            self.v_cl[guild.id]=v_cl
-            #break
-    if not(guild.id in self.v_cl) or self.v_cl[guild.id]==None or not(self.v_cl[guild.id].is_connected()):
-      if flg_vc:
-        self.fut_connect[guild.id]=asyncio.get_event_loop().create_future()
-        self.v_cl[guild.id]=await voice_state.channel.connect()
-        if guild.id in self.fut_connect and self.fut_connect[guild.id]: self.fut_connect[guild.id].set_result(True)
-    else:
-      if self.v_cl[guild.id].is_playing(): self.v_cl[guild.id].stop()
-      if self.v_cl[guild.id].channel!=voice_state.channel:
-        await self.v_cl[guild.id].move_to(voice_state.channel)
     if not(flg_loudspeaker):
-      if guild.id in self.v_cl and self.v_cl[guild.id].is_connected():
-        self.v_cl[guild.id].play(discord.FFmpegPCMAudio("audio/start.wav"))
+      if flg_vc:
+        await self.call(guild.id,voice_state.channel, "audio/start.wav")
       await Cog.send(ch,f"Timer set: {dt.seconds//60} min {dt.seconds%60} sec.")
-      self.loop[guild.id]=asyncio.get_event_loop()
-      self.future[guild.id]=self.loop[guild.id].create_future()
-      self.task[guild.id]=self.loop[guild.id].call_later(dt.total_seconds(),self.future[guild.id].set_result,True)
+      self.future[guild.id]=loop.create_future()
+      self.task[guild.id]=loop.call_later(dt.total_seconds(),self.future[guild.id].set_result,True)
       #await self.time_msg(guild.id,ch)
       result_future=await self.future[guild.id]
       if not(guild.id in self.future) or not(self.future[guild.id]): return
@@ -572,7 +543,6 @@ class Cog(commands.Cog):
   async def t(self,ctx,arg_t=None,arg_b='No'):
     await self.t_in(ctx.guild,ctx.channel,ctx.author,arg_t,arg_b)
 
-loop=asyncio.get_event_loop()
 for i in range(N_BOTS):
   bot[i].add_cog(Cog(bot=bot[i],bot_id=i))
   loop.run_until_complete(bot[i].login(token[i]))
